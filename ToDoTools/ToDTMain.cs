@@ -4,84 +4,74 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using CRH.Framework.Disk;
 using CRH.Framework.Disk.DataTrack;
+using CRH.Framework.Disk.AudioTrack;
 using ToDoTools.sources;
-using TalesOfComp;
 
 namespace ToDoTools
 {
     class ToDTMain
     {
-        static TextWriterTraceListener twtl_trace;
-        static ConsoleTraceListener ctl_trace;
         static Stopwatch sw_watch;
+        static private cGlobal global;
 
         static void Main(string[] args)
         {
-            StreamWriter sw = new StreamWriter("ToDoTools.log");
-            twtl_trace = new TextWriterTraceListener(sw);
-            ctl_trace = new ConsoleTraceListener();
-            Trace.Listeners.Add(twtl_trace);
+            ConsoleTraceListener ctl_trace = new ConsoleTraceListener();
             Trace.Listeners.Add(ctl_trace);
-            Trace.AutoFlush = true;
+
+            global = cGlobal.INSTANCE;
+            global.ts_TypeTrace.Level = TraceLevel.Error;
             sw_watch = new Stopwatch();
 
-            try
+            if (global.readArguments(args))
             {
-                if (args.Length != 2 && args.Length != 3)
-                    throw new Exception("Incorrect parameters !");
+                Trace.AutoFlush = true;
 
-                sw_watch.Start();
-                
-                if (args[0] == "-e")
-                    extractFromIso(args[1]);
-                else if (args[0] == "-u")
-                    Archive.unpackFile(args[1]);
-                else
-                    throw new Exception(string.Format("Unknow action {0}", args[0]));
-            }
-            catch (Exception ex)
-            {
-                Trace.WriteLine(ex.Message + Environment.NewLine, "ERROR");
-                usage();
-                return;
-            }
-            finally
-            {
-                sw_watch.Stop();
-                Trace.WriteLine(string.Format("Terminated. Execution time : {0}", sw_watch.Elapsed));
+                try
+                {
+                    sw_watch.Start();
+
+                    if (global.EXTRACT)
+                        extractFromIso();
+                    else if (global.INSERT)
+                        insertToIso();
+                    else if (global.UNPACK)
+                        Archive.unpackFile();
+                    else if (global.PACK)
+                        Archive.packFile();
+                }
+                catch (Exception ex)
+                {
+                    Trace.WriteLine(ex.Message + Environment.NewLine, "ERROR");
+                    usage();
+                    return;
+                }
+                finally
+                {
+                    sw_watch.Stop();
+                    Trace.WriteLine(string.Format("Terminated. Execution time : {0}", sw_watch.Elapsed));
+                }
             }
         }
 
         public static void usage()
         {
-            Trace.WriteLine("Usage : ToDoTools.exe <action> <file> [mode]");
+            Trace.WriteLine("Usage : ToDoTools.exe <action> [options]");
             Trace.WriteLine("");
             Trace.WriteLine("Actions :");
-            Trace.WriteLine("  -e      : Extract files from image disk");
-            Trace.WriteLine("  -u      : Unpack file");
-            Trace.WriteLine("  -p      : Pack file");
-            Trace.WriteLine("  -d      : Decompress file");
-            Trace.WriteLine("  -c      : compress file");
-            Trace.WriteLine("<file>    : Pathname of the file");
-            Trace.WriteLine("<mode>    : Compression (-c) mode (0, 1, 3) or Archive (-p) mode (1, 2)");
-        }
-
-        /// <summary>
-        /// Ouvre un fichier image (iso) et retourne le track 1
-        /// </summary>
-        /// <param name="as_isoName">Chemin de l'iso</param>
-        /// <returns></returns>
-        private static DataTrackReader openIso(string as_isoName)
-        {
-            if (!File.Exists(as_isoName))
-            {
-                Trace.WriteLine("Unknown file : {0}", as_isoName);
-                return null;
-            }
-
-            DiskReader dr_iso = DiskReader.InitFromIso(as_isoName, DiskFileSystem.ISO9660, DataTrackMode.MODE2_XA);
-
-            return (DataTrackReader)dr_iso.DataTrack;
+            Trace.WriteLine("  extract : Extract files from image disk and unpack them (if necessary)");
+            Trace.WriteLine("  insert  : Insert files to image disk after pack them (if necessary)");
+            Trace.WriteLine("  unpack  : Unpack a file");
+            Trace.WriteLine("  pack    : Pack files");
+            Trace.WriteLine("  decomp  : Decompress a file");
+            Trace.WriteLine("  comp    : Compress a file");
+            Trace.WriteLine("Options :");
+            Trace.WriteLine("  -i <file> : Pathname of the source file");
+            Trace.WriteLine("  -o <file> : Pathname of the destination file");
+            Trace.WriteLine("  -m <mode> : Compression/Archive mode (0, 1, 3 (default) / 1 (default), 2)");
+            Trace.WriteLine("  -r        : Recursive mode");
+            Trace.WriteLine("  -l <file> : Active log to the file");
+            Trace.WriteLine("  -v        : Verbose");
         }
 
         /// <summary>
@@ -91,9 +81,9 @@ namespace ToDoTools
         /// <param name="i_position">Adresse de l'index dans le fichier SLUS</param>
         /// <param name="nb">Nombre de pointeurs de l'index</param>
         /// <returns></returns>
-        private static List<Global.st_index> readSlusIndex(DataTrackReader dtr_track, int i_position, int nb)
+        private static List<cGlobal.st_index> readSlusIndex(DataTrackReader dtr_track, int i_position, int nb)
         {
-            List<Global.st_index> index = new List<Global.st_index>();
+            List<cGlobal.st_index> index = new List<cGlobal.st_index>();
 
             Stream st_file = dtr_track.ReadFile("/SLUS_006.26");
 
@@ -101,7 +91,7 @@ namespace ToDoTools
             {
                 br_file.BaseStream.Seek(i_position, SeekOrigin.Begin);
 
-                Global.st_index elem;
+                cGlobal.st_index elem;
 
                 for (int i = 0; i < nb; i++)
                 {
@@ -119,41 +109,144 @@ namespace ToDoTools
         /// <summary>
         /// Extract all files for image disk and unpack those are archive
         /// </summary>
-        /// <param name="as_isoName">Pathnam of the file</param>
         /// <returns></returns>
-        public static bool extractFromIso(string as_isoName)
+        public static bool extractFromIso()
         {
-            DataTrackReader t_track = openIso(as_isoName);
-
             try
             {
-                t_track.ReadVolumeDescriptors();
-                t_track.BuildIndex();
+                if (!File.Exists(global.SOURCE))
+                    throw new Exception(string.Format("Unknown file : {0}", global.SOURCE));
 
-                foreach (DataTrackIndexEntry entry in t_track.FileEntries)
+                DiskReader dr_iso = DiskReader.InitFromCue(global.SOURCE, DiskFileSystem.ISO9660);
+
+                foreach (Track t in dr_iso.Tracks)
                 {
-                    Trace.WriteLine(string.Format("Extracting {0}...", entry.FullPath));
-
-                    switch (Path.GetFileName(entry.FullPath))
+                    if (t.IsAudio)
                     {
-                        case "B.DAT":
-                            t_track.ExtractFile(entry.FullPath, Global.pcs_dirDump + entry.FullPath);
-                            List<Global.st_index> index = readSlusIndex(t_track, 0xF3C00, 339);
-                            MemoryStream st_file = (MemoryStream)t_track.ReadFile(entry.FullPath);
-                            Archive.unpackBDat(st_file, index, entry.FullPath.Replace(".", "") + "/");
-                            break;
+                        AudioTrackReader atr_track = (AudioTrackReader)t;
 
-                        default:
-                            t_track.ExtractFile(entry.FullPath, Global.pcs_dirDump + entry.FullPath);
-                            break;
+                        atr_track.Extract(string.Format("{0}Track{1}.bin",  global.DIR_DUMP, atr_track.TrackNumber), AudioFileContainer.WAVE);
+                    }
+                    else if (t.IsData)
+                    {
+                        DataTrackReader dtr_track = (DataTrackReader)t;
+
+                        dtr_track.ReadVolumeDescriptors();
+                        dtr_track.BuildIndex();
+
+                        foreach (DataTrackIndexEntry entry in dtr_track.FileEntries)
+                        {
+                            Trace.WriteLine(string.Format("Extracting {0}...", entry.FullPath));
+
+                            switch (Path.GetFileName(entry.FullPath))
+                            {
+                                case "B.DAT":
+                                    dtr_track.ExtractFile(entry.FullPath, global.DIR_DUMP + entry.FullPath);
+                                    List<cGlobal.st_index> index = readSlusIndex(dtr_track, 0xF3C00, 339);
+                                    MemoryStream st_file = (MemoryStream)dtr_track.ReadFile(entry.FullPath);
+                                    Archive.unpackBDat(st_file, index, entry.FullPath.Replace(".", "") + "/");
+                                    break;
+
+                                default:
+                                    dtr_track.ExtractFile(entry.FullPath, global.DIR_DUMP + entry.FullPath);
+                                    break;
+                            }
+                        }
                     }
                 }
+
+                return true;
             }
             catch (Exception ex)
             {
                 Trace.WriteLine(ex.Message + Environment.NewLine, "ERROR");
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Insert all files from disk to image disk
+        /// </summary>
+        /// <returns></returns>
+        public static bool insertToIso()
+        {
+            DiskReader dr_isoIn = DiskReader.InitFromCue(global.SOURCE, DiskFileSystem.ISO9660);
+            DiskWriter dw_isoOut = DiskWriter.Init(global.DESTINATION, DiskFileSystem.ISO9660);
+
+            DataTrackWriter dtw_trackOut = null;
+            
+            foreach (Track t in dr_isoIn.Tracks)
+            {
+                if (t.IsAudio)
+                {
+                    AudioTrackReader atr_trackIn = (AudioTrackReader)t;
+                    AudioTrackWriter atw_trackOut = dw_isoOut.CreateAudioTrack();
+
+                    atw_trackOut.Prepare();
+
+                    Stream ms = atr_trackIn.Read();
+
+                    atw_trackOut.Write(ms);
+
+                    atw_trackOut.Finalize();
+                }
+                else if (t.IsData)
+                {
+                    DataTrackReader dtr_trackIn = (DataTrackReader)t;
+                    dtr_trackIn.ReadVolumeDescriptors();
+                    dtr_trackIn.BuildIndex();
+
+                    dtw_trackOut = dw_isoOut.CreateDataTrack(DataTrackMode.MODE2_XA);
+
+                    dtw_trackOut.Prepare(
+                        "TOD",
+                        ((int)dtr_trackIn.PrimaryVolumeDescriptor.PathTableSize / 2048) + 1,
+                        (int)dtr_trackIn.PrimaryVolumeDescriptor.RootDirectoryEntry.ExtentSize / 2048
+                    );
+
+                    dtw_trackOut.CopySystemZone(dtr_trackIn);
+
+                    dtr_trackIn.EntriesOrder = DataTrackEntriesOrder.LBA;
+                    foreach (DataTrackIndexEntry entry in dtr_trackIn.Entries)
+                    {
+                        if (entry.IsDirectory)
+                        {
+                            Trace.WriteLine(string.Format("Creating directory {0}...", entry.FullPath));
+                            dtw_trackOut.CreateDirectory(entry.FullPath, (int)entry.Size / 2048);
+                        }
+                        else if (entry.IsStream)
+                        {
+                            Trace.WriteLine(string.Format("Copying file {0}...", entry.FullPath));
+                            dtw_trackOut.CopyStream(entry.FullPath, dtr_trackIn, entry);
+                        }
+                        else
+                        {
+                            Trace.WriteLine(string.Format("Inserting file {0}...", entry.FullPath));
+
+                            switch (Path.GetFileName(entry.FullPath))
+                            {
+                                case "B.DAT":
+                                    List<cGlobal.st_index> index = readSlusIndex(dtr_trackIn, 0xF3C00, 339);
+                                    MemoryStream ms_orig = (MemoryStream)dtr_trackIn.ReadFile(entry.FullPath);
+                                    MemoryStream ms_new = Archive.packBDat(ms_orig, index, entry.FullPath.Replace(".", "") + "/");
+                                    dtw_trackOut.WriteFile(entry.FullPath, ms_new);
+                                    break;
+
+                                default:
+                                    Stream ms = dtr_trackIn.ReadFile(entry.FullPath);
+                                    dtw_trackOut.WriteFile(entry.FullPath, ms);
+                                    break;
+                            }
+                        }
+                    }
+
+                    dtw_trackOut.Finalize();
+                }
+            }
+
+            dtw_trackOut.FinaliseFileSystem();
+            dw_isoOut.Close();
+            dr_isoIn.Close();
 
             return true;
         }
