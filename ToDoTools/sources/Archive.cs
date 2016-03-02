@@ -36,6 +36,35 @@ namespace ToDoTools.sources
             return index;
         }
 
+        static private List<cGlobal.st_index> readIndex(Stream as_file, int mode)
+        {
+            List<cGlobal.st_index> index = new List<cGlobal.st_index>();
+            cGlobal.st_index elem;
+            int nb = 0;
+
+            using (BinaryReader br = new BinaryReader(as_file, Encoding.ASCII, true))
+            {
+                if (mode == 1)
+                {
+                    nb = (int)br.ReadUInt32() / 4;
+                    br.BaseStream.Position = 0;
+                }
+                else
+                    nb = (int)br.ReadUInt32();
+
+                for (int i = 0; i < nb; i++)
+                {
+                    elem.id = i;
+                    elem.pos = br.ReadUInt32();
+                    elem.size = 0;
+
+                    index.Add(elem);
+                }
+            }
+
+            return index;
+        }
+
         static private void writeIndex(MemoryStream ms, List<cGlobal.st_index> index)
         {
             using (BinaryWriter bw = new BinaryWriter(ms, Encoding.ASCII, true))
@@ -50,18 +79,45 @@ namespace ToDoTools.sources
 
         //----------------------------------------------------------------------------------------
 
-        static private bool isArchive(BinaryReader abr_file, int ai_size)
+        static public bool isArchive(Stream as_file, int ai_size = -1)
+        {
+            long pos = as_file.Position;
+
+            if (ai_size == -1)
+                ai_size = (int)as_file.Length;
+
+            try
+            {
+                using (BinaryReader br = new BinaryReader(as_file, Encoding.ASCII, true))
+                {
+                    return isArchive(br, ai_size);
+                }
+            }
+            catch (Exception ex)
+            {
+                throw ex;
+            }
+            finally
+            {
+                as_file.Position = pos;
+            }
+        }
+
+        static public bool isArchive(BinaryReader abr_file, int ai_size = -1)
         {
             int i_value_prec = 0;
             int i_value = 0;
             int i_nb = 0;
             long pos = abr_file.BaseStream.Position;
 
+            if (ai_size == -1)
+                ai_size = (int)abr_file.BaseStream.Length;
+
             try
             {
                 i_value = (int)abr_file.ReadUInt32();
                 i_nb = i_value / 4;
-                
+
                 if (i_nb <= 1 || i_value % 4 != 0 || ai_size <= 4)
                     return false;
 
@@ -78,8 +134,7 @@ namespace ToDoTools.sources
             }
             catch (Exception ex)
             {
-                Trace.WriteLine(ex.Message + Environment.NewLine, "ERROR");
-                return false;
+                throw ex;
             }
             finally
             {
@@ -87,12 +142,39 @@ namespace ToDoTools.sources
             }
         }
 
-        static private bool isArchiveNb(BinaryReader abr_file, int ai_size)
+        static public bool isArchiveNb(Stream as_file, int ai_size = -1)
+        {
+            long pos = as_file.Position;
+
+            if (ai_size == -1)
+                ai_size = (int)as_file.Length;
+
+            try
+            {
+                using (BinaryReader br = new BinaryReader(as_file, Encoding.ASCII, true))
+                {
+                    return isArchiveNb(br, ai_size);
+                }
+            }
+            catch (Exception ex)
+            {
+                throw ex;
+            }
+            finally
+            {
+                as_file.Position = pos;
+            }
+        }
+
+        static public bool isArchiveNb(BinaryReader abr_file, int ai_size = -1)
         {
             int i_value = 0;
             int i_value_prec = 0;
             int i_nb = 0;
             long pos = abr_file.BaseStream.Position;
+
+            if (ai_size == -1)
+                ai_size = (int)abr_file.BaseStream.Length;
 
             try
             {
@@ -116,81 +198,7 @@ namespace ToDoTools.sources
             }
             catch (Exception ex)
             {
-                Trace.WriteLine(ex.Message + Environment.NewLine, "ERROR");
-                return false;
-            }
-            finally
-            {
-                abr_file.BaseStream.Position = pos;
-            }
-        }
-
-        static private bool isCompressed(BinaryReader abr_file, int ai_size, ref int mode)
-        {
-            mode = 0;
-            int size_in = 0;
-            int size_out = 0;
-            long pos = abr_file.BaseStream.Position;
-
-            try
-            {
-                if (ai_size < 9)
-                    return false;
-
-                mode = (int)abr_file.ReadByte();
-                size_in = (int)abr_file.ReadUInt32() + 9;
-                size_out = (int)abr_file.ReadUInt32();
-
-                while (size_in % 4 != 0 && size_in < ai_size)
-                    size_in++;
-
-                if (mode == 0 && size_in != size_out)
-                    return false;
-
-                if ((mode == 0x01 || mode == 0x03) && size_out <= size_in && ai_size < size_in)
-                    return false;
-
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Trace.WriteLine(ex.Message + Environment.NewLine, "ERROR");
-                return false;
-            }
-            finally
-            {
-                abr_file.BaseStream.Position = pos;
-            }
-        }
-
-        static private bool isTim(BinaryReader abr_file, int ai_size)
-        {
-            int i_value = 0;
-            long pos = abr_file.BaseStream.Position;
-
-            try
-            {
-                if (ai_size < 5)
-                    return false;
-
-                i_value = (int)abr_file.ReadByte();
-
-                if (i_value != 0x10)
-                    return false;
-
-                abr_file.BaseStream.Position = 4;
-
-                i_value = abr_file.ReadByte();
-
-                if (i_value != 0x08 && i_value != 0x09)
-                    return false;
-
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Trace.WriteLine(ex.Message + Environment.NewLine, "ERROR");
-                return false;
+                throw ex;
             }
             finally
             {
@@ -200,67 +208,22 @@ namespace ToDoTools.sources
 
         //----------------------------------------------------------------------------------------
 
-        static private string getTypeOfFile(MemoryStream ams_file, int ai_pos, int ai_size)
-        {
-            using (BinaryReader br_file = new BinaryReader(ams_file, Encoding.ASCII, true))
-            {
-                return getTypeOfFile(br_file, ai_pos, ai_size);
-            }
-        }
-
-        static private string getTypeOfFile(BinaryReader abr_file, int ai_pos, int ai_size)
-        {
-            string ext = ".bin";
-            int mode = 0;
-
-            abr_file.BaseStream.Position = ai_pos;
-
-            if (isArchive(abr_file, ai_size))
-                return ".arc1";
-            else if (isArchiveNb(abr_file, ai_size))
-                return ".arc2";
-            else if (isCompressed(abr_file, ai_size, ref mode))
-                return string.Format(".{0:00}", mode);
-            else if (isTim(abr_file, ai_size))
-                return ".tim";
-
-            return ext;
-        }
-
-        //----------------------------------------------------------------------------------------
-
-        static public void unpackFile(BinaryReader abr_file = null)
+        static public void unpackFile(Stream as_in, string as_pathname, int mode)
         {
             global = cGlobal.INSTANCE;
             List<cGlobal.st_index> index = new List<cGlobal.st_index>();
             byte[] b_file;
             string s_ext;
-            string s_dir;
-            bool b_fileDisk = false;
             int size;
-
-            if (abr_file == null)
-            { 
-                abr_file = new BinaryReader(File.Open(global.SOURCE, FileMode.Open, FileAccess.Read));
-                b_fileDisk = true;
-            }
-
-            Trace.WriteLine(string.Format("Extracting file {0}", global.SOURCE));
-            Trace.Indent();
 
             try
             {
-                if (isArchive(abr_file, (int)abr_file.BaseStream.Length))
-                    index = readIndex(abr_file, 1);
-                else if (isArchiveNb(abr_file, (int)abr_file.BaseStream.Length))
-                    index = readIndex(abr_file, 2);
-                else
-                    throw new Exception("This file is not an archive");
+                index = readIndex(as_in, mode);
 
                 for (int i = 0; i < index.Count; i++)
                 {
-                    if (i == index.Count-1)
-                        size = (int)(abr_file.BaseStream.Length - index[i].pos);
+                    if (i == index.Count - 1)
+                        size = (int)(as_in.Length - index[i].pos);
                     else
                         size = (int)(index[i + 1].pos - index[i].pos);
 
@@ -268,21 +231,19 @@ namespace ToDoTools.sources
 
                     string s_name = string.Format("{0:0000}", index[i].id);
 
-                    s_ext = getTypeOfFile(abr_file, (int)index[i].pos, size);
+                    s_ext = global.getTypeOfFile(as_in, (int)index[i].pos, size);
 
-                    Trace.WriteLineIf(global.ts_TypeTrace.TraceVerbose, string.Format("Extracting file {0}{1}", s_name, s_ext));
-
-                    abr_file.BaseStream.Seek(index[i].pos, SeekOrigin.Begin);
+                    as_in.Seek(index[i].pos, SeekOrigin.Begin);
 
                     using (MemoryStream ms_file = new MemoryStream())
                     {
-                        abr_file.Read(b_file, 0, size);
-                        ms_file.Write(b_file, 0, size);
+                        ms_file.CopyFrom(as_in, size);
+                        ms_file.Position = 0;
 
-                        s_dir = b_fileDisk ? Path.GetDirectoryName(global.SOURCE) + "/" : global.DIR_DUMP;
-                        s_dir += Path.GetFileNameWithoutExtension(global.SOURCE) + "/" + s_name + s_ext;
-
-                        global.writeFileToDisk(ms_file, s_dir);
+                        if (global.RECURSIVE)
+                            global.processFile(ms_file, as_pathname, s_name, as_pathname + s_name + s_ext);
+                        else
+                            global.writeFileToDisk(ms_file, as_pathname + s_name + s_ext);
                     }
 
                     b_file = null;
@@ -290,12 +251,7 @@ namespace ToDoTools.sources
             }
             catch (Exception ex)
             {
-                Trace.WriteLine(ex.Message + Environment.NewLine, "ERROR");
-            }
-            finally
-            {
-                abr_file.Close();
-                Trace.Unindent();
+                throw ex;
             }
         }
 
@@ -315,19 +271,17 @@ namespace ToDoTools.sources
 
                     string s_name = string.Format("{0:0000}", file.id);
 
-                    Trace.WriteLineIf(global.ts_TypeTrace.TraceVerbose, string.Format("Extracting file {0}", s_name));
-
-                    s_ext = getTypeOfFile(ams_file, (int)file.pos, (int)file.size);
-
-                    ams_file.Seek(file.pos, SeekOrigin.Begin);
+                    s_ext = global.getTypeOfFile(ams_file, (int)file.pos, (int)file.size);
 
                     using (MemoryStream ms_file = new MemoryStream())
                     {
-                        ams_file.Read(b_file, 0, (int)file.size);
+                        ams_file.CopyTo(ms_file, file.size, file.pos);
+                        ms_file.Position = 0;
 
-                        ms_file.Write(b_file, 0, (int)file.size);
-
-                        global.writeFileToDisk(ms_file, global.DIR_DUMP + as_path + s_name + s_ext);
+                        if (global.RECURSIVE)
+                            global.processFile(ms_file, as_path, s_name, as_path + s_name + s_ext);
+                        else
+                            global.writeFileToDisk(ms_file, as_path + s_name + s_ext);
                     }
 
                     b_file = null;
@@ -335,7 +289,7 @@ namespace ToDoTools.sources
             }
             catch (Exception ex)
             {
-                Trace.WriteLine(ex.Message + Environment.NewLine, "ERROR");
+                throw ex;
             }
             finally
             {
@@ -364,14 +318,9 @@ namespace ToDoTools.sources
             {
                 using (BinaryReader br_file = new BinaryReader(File.Open(global.SOURCE, FileMode.Open, FileAccess.Read)))
                 {
-                    if (isArchive(br_file, (int)br_file.BaseStream.Length))
-                        index_orig = readIndex(br_file, 1);
-                    else if (isArchiveNb(br_file, (int)br_file.BaseStream.Length))
-                        index_orig = readIndex(br_file, 2);
-                    else
-                        throw new Exception("This file is not an archive");
+                    index_orig = readIndex(br_file, global.MODE);
 
-                    ms_dest.Position = index_orig.Count * 4;
+                    ms_dest.Position = global.MODE == 1 ? index_orig.Count * 4 : index_orig.Count * 4 + 4;
 
                     for (int i = 0; i < index_orig.Count; i++)
                     {
@@ -380,7 +329,7 @@ namespace ToDoTools.sources
                         else
                             size = (int)(index_orig[i + 1].pos - index_orig[i].pos);
 
-                        s_name = string.Format("{0:0000}{1}", index_orig[i].id, getTypeOfFile(br_file, (int)index_orig[i].pos, size));
+                        s_name = string.Format("{0:0000}{1}", index_orig[i].id, global.getTypeOfFile(br_file, (int)index_orig[i].pos, size));
                         s_pathname = Path.GetDirectoryName(global.SOURCE) + "/" + Path.GetFileNameWithoutExtension(global.SOURCE) + "/" + s_name;
 
                         elem.id = i;
@@ -418,13 +367,20 @@ namespace ToDoTools.sources
                 }
 
                 ms_dest.Position = 0;
+                if (global.MODE == 2)
+                {
+                    byte[] b = new byte[4];
+                    b = BitConverter.GetBytes(index_dest.Count);
+                    Array.Reverse(BitConverter.GetBytes(index_dest.Count));
+                    ms_dest.Write(b, 0, 4);
+                }
                 writeIndex(ms_dest, index_dest);
 
                 global.writeFileToDisk(ms_dest, global.DESTINATION);
             }
             catch (Exception ex)
             {
-                Trace.WriteLine(ex.Message + Environment.NewLine, "ERROR");
+                throw ex;
             }
             finally
             {
@@ -449,11 +405,11 @@ namespace ToDoTools.sources
                 foreach (cGlobal.st_index file in al_orig)
                 {
                     string s_name = string.Format("{0:0000}", file.id);
-                    string s_fullPath = global.DIR_DUMP + as_path + s_name;
+                    string s_fullPath = global.DIR_OUT + as_path + s_name;
 
                     Trace.WriteLineIf(global.ts_TypeTrace.TraceVerbose, string.Format("Inserting file {0}", s_name));
 
-                    s_ext = getTypeOfFile(ams_orig, (int)file.pos, (int)file.size);
+                    s_ext = global.getTypeOfFile(ams_orig, (int)file.pos, (int)file.size);
                     s_fullPath += s_ext;
 
                     if (File.Exists(s_fullPath))
@@ -493,14 +449,15 @@ namespace ToDoTools.sources
             }
             catch (Exception ex)
             {
-                Trace.WriteLine(ex.Message + Environment.NewLine, "ERROR");
-                return null;
+                throw ex;
             }
             finally
             {
                 Trace.Unindent();
             }
         }
+
+        //----------------------------------------------------------------------------------------
 
     }
 }

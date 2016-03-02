@@ -16,41 +16,110 @@ namespace ToDoTools
 
         static void Main(string[] args)
         {
+            global = cGlobal.INSTANCE;
+            bool result = false;
+
             ConsoleTraceListener ctl_trace = new ConsoleTraceListener();
             Trace.Listeners.Add(ctl_trace);
 
-            global = cGlobal.INSTANCE;
             global.ts_TypeTrace.Level = TraceLevel.Error;
             sw_watch = new Stopwatch();
 
-            if (global.readArguments(args))
+            try
             {
+                global.readArguments(args);
+
                 Trace.AutoFlush = true;
 
-                try
-                {
-                    sw_watch.Start();
+                sw_watch.Start();
 
-                    if (global.EXTRACT)
+                switch (global.ACTION)
+                {
+                    case "COMP":
+                        if (global.SOURCE == "")
+                            throw new ToDException("The option -i is missing !");
+                        if (global.DESTINATION == "")
+                            throw new ToDException("The option -o is missing !");
+                        if (global.MODE == -1)
+                            throw new ToDException("The option -m is missing !");
+                        using (FileStream fs_in = new FileStream(global.SOURCE, FileMode.Open))
+                        using (MemoryStream ms_out = new MemoryStream())
+                        {
+                            Compression.compFile(fs_in, ms_out);
+
+                            global.writeFileToDisk(ms_out, global.DESTINATION);
+                        }
+                        break;
+
+                    case "DECOMP":
+                        if (global.SOURCE == "")
+                            throw new ToDException("The option -i is missing !");
+                        if (global.DESTINATION == "")
+                            throw new ToDException("The option -o is missing !");
+                        result = false;
+                        using (FileStream fs_in = new FileStream(global.SOURCE, FileMode.Open))
+                        using (MemoryStream ms_out = new MemoryStream())
+                        {
+                            Compression.decompFile(fs_in, ms_out);
+
+                            if (global.RECURSIVE)
+                                result = global.processFile(ms_out, global.DESTINATION, "", global.DESTINATION);
+                        }
+                        break;
+
+                    case "EXTRACT":
+                        if (global.SOURCE == "")
+                            throw new ToDException("The option -i is missing !");
+                        if (global.DIR_OUT == "")
+                            throw new ToDException("The option -d is missing !");
                         extractFromIso();
-                    else if (global.INSERT)
+                        break;
+
+                    case "INSERT":
+                        if (global.SOURCE == "")
+                            throw new ToDException("The option -i is missing !");
+                        if (global.DESTINATION == "")
+                            throw new ToDException("The option -o is missing !");
                         insertToIso();
-                    else if (global.UNPACK)
-                        Archive.unpackFile();
-                    else if (global.PACK)
+                        break;
+
+                    case "PACK":
+                        if (global.SOURCE == "")
+                            throw new ToDException("The option -i is missing !");
+                        if (global.DESTINATION == "")
+                            throw new ToDException("The option -o is missing !");
+                        if (global.MODE == -1)
+                            throw new ToDException("The option -m is missing !");
                         Archive.packFile();
+                        break;
+
+                    case "UNPACK":
+                        if (global.SOURCE == "")
+                            throw new ToDException("The option -i is missing !");
+                        using (FileStream fs_in = new FileStream(global.SOURCE, FileMode.Open))
+                        {
+                            Archive.unpackFile(fs_in, global.DIR_OUT, 1);
+                        }
+                        break;
+
+                    default:
+                        throw new ToDException(string.Format("Unknow action {0} !", global.ACTION));
                 }
-                catch (Exception ex)
-                {
-                    Trace.WriteLine(ex.Message + Environment.NewLine, "ERROR");
-                    usage();
-                    return;
-                }
-                finally
-                {
-                    sw_watch.Stop();
-                    Trace.WriteLine(string.Format("Terminated. Execution time : {0}", sw_watch.Elapsed));
-                }
+            }
+            catch (ToDException ex)
+            {
+                Trace.WriteLine(ex.Message + Environment.NewLine, "ERROR");
+                usage();
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine(ex.Message + Environment.NewLine, "ERROR");
+                Trace.WriteLine(ex.StackTrace);
+            }
+            finally
+            {
+                sw_watch.Stop();
+                Trace.WriteLineIf(global.ts_TypeTrace.TraceVerbose, string.Format("Terminated. Execution time : {0}", sw_watch.Elapsed));
             }
         }
 
@@ -66,12 +135,13 @@ namespace ToDoTools
             Trace.WriteLine("  decomp  : Decompress a file");
             Trace.WriteLine("  comp    : Compress a file");
             Trace.WriteLine("Options :");
-            Trace.WriteLine("  -i <file> : Pathname of the source file");
-            Trace.WriteLine("  -o <file> : Pathname of the destination file");
-            Trace.WriteLine("  -m <mode> : Compression/Archive mode (0, 1, 3 (default) / 1 (default), 2)");
-            Trace.WriteLine("  -r        : Recursive mode");
-            Trace.WriteLine("  -l <file> : Active log to the file");
-            Trace.WriteLine("  -v        : Verbose");
+            Trace.WriteLine("  -r         : Recursive mode");
+            Trace.WriteLine("  -i <file>  : Pathname of the source file");
+            Trace.WriteLine("  -o <file>  : Pathname of the destination file");
+            Trace.WriteLine("  -d <dir>   : Pathname of the destination directory");
+            Trace.WriteLine("  -m <mode>  : Compression/Archive mode (0, 1, 3 (default) / 1 (default), 2)");
+            Trace.WriteLine("  -l <file>  : Active log to the file");
+            Trace.WriteLine("  -v <level> : Trace level (1 > 4)");
         }
 
         /// <summary>
@@ -114,8 +184,13 @@ namespace ToDoTools
         {
             try
             {
-                if (!File.Exists(global.SOURCE))
-                    throw new Exception(string.Format("Unknown file : {0}", global.SOURCE));
+                if (Path.GetExtension(global.SOURCE) != ".cue")
+                {
+                    if (!File.Exists(Path.GetDirectoryName(global.SOURCE) + "/" + Path.GetFileNameWithoutExtension(global.SOURCE) + ".cue"))
+                        throw new ToDException("File .cue not found");
+                    else
+                        global.SOURCE = Path.GetDirectoryName(global.SOURCE) + "/" + Path.GetFileNameWithoutExtension(global.SOURCE) + ".cue";
+                }
 
                 DiskReader dr_iso = DiskReader.InitFromCue(global.SOURCE, DiskFileSystem.ISO9660);
 
@@ -125,7 +200,9 @@ namespace ToDoTools
                     {
                         AudioTrackReader atr_track = (AudioTrackReader)t;
 
-                        atr_track.Extract(string.Format("{0}Track{1}.bin",  global.DIR_DUMP, atr_track.TrackNumber), AudioFileContainer.WAVE);
+                        Trace.WriteLine(string.Format("Extracting Track{0}.wav...", atr_track.TrackNumber));
+
+                        atr_track.Extract(string.Format("{0}/Track{1}.wav", global.DIR_OUT, atr_track.TrackNumber), AudioFileContainer.WAVE);
                     }
                     else if (t.IsData)
                     {
@@ -141,14 +218,14 @@ namespace ToDoTools
                             switch (Path.GetFileName(entry.FullPath))
                             {
                                 case "B.DAT":
-                                    dtr_track.ExtractFile(entry.FullPath, global.DIR_DUMP + entry.FullPath);
+                                    dtr_track.ExtractFile(entry.FullPath, global.DIR_OUT + entry.FullPath);
                                     List<cGlobal.st_index> index = readSlusIndex(dtr_track, 0xF3C00, 339);
                                     MemoryStream st_file = (MemoryStream)dtr_track.ReadFile(entry.FullPath);
-                                    Archive.unpackBDat(st_file, index, entry.FullPath.Replace(".", "") + "/");
+                                    Archive.unpackBDat(st_file, index, global.DIR_OUT + entry.FullPath.Replace(".", "") + "/");
                                     break;
 
                                 default:
-                                    dtr_track.ExtractFile(entry.FullPath, global.DIR_DUMP + entry.FullPath);
+                                    dtr_track.ExtractFile(entry.FullPath, global.DIR_OUT + entry.FullPath);
                                     break;
                             }
                         }
@@ -159,8 +236,7 @@ namespace ToDoTools
             }
             catch (Exception ex)
             {
-                Trace.WriteLine(ex.Message + Environment.NewLine, "ERROR");
-                return false;
+                throw ex;
             }
         }
 

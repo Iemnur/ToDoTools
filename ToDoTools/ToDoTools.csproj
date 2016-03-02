@@ -61,13 +61,15 @@
     <Reference Include="System.Data" />
     <Reference Include="System.Net.Http" />
     <Reference Include="System.Xml" />
-    <Reference Include="TalesOfComp, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>lib\TalesOfComp.dll</HintPath>
+    <Reference Include="TalesOfLib">
+      <HintPath>lib\TalesOfLib.dll</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="sources\Archive.cs" />
+    <Compile Include="sources\Compression.cs" />
+    <Compile Include="sources\Extension.cs" />
+    <Compile Include="sources\ToDException.cs" />
     <Compile Include="sources\Global.cs" />
     <Compile Include="ToDTMain.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
